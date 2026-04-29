@@ -25,7 +25,9 @@ import threading
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
 OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct"
+OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_FALLBACK = "deepseek/deepseek-chat:free"
+OPENROUTER_FALLBACK2 = "mistralai/mistral-7b-instruct:free"
 CHECK_INTERVAL_MINUTES = 15
 
 MARKETS = ["EURUSD", "GBPUSD", "DXY", "US100", "US30", "WTI", "GOLD", "USDCAD", "BTC"]
@@ -70,29 +72,36 @@ daily_news_cache = []  # Store today's news for evening report
 
 
 def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
-    """Generic OpenRouter API call"""
-    try:
-        with httpx.Client(timeout=45) as client:
-            response = client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://golden-trading-news-bot.com",
-                    "X-Title": "Golden Trading News Bot"
-                },
-                json={
-                    "model": OPENROUTER_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": max_tokens,
-                    "temperature": 0.3
-                }
-            )
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.error(f"OpenRouter error: {e}")
-        return None
+    """Generic OpenRouter API call with fallback models"""
+    models = [OPENROUTER_MODEL, OPENROUTER_FALLBACK, OPENROUTER_FALLBACK2]
+    for model in models:
+        try:
+            with httpx.Client(timeout=60) as client:
+                response = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://golden-trading-news-bot.com",
+                        "X-Title": "Golden Trading News Bot"
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": max_tokens,
+                        "temperature": 0.3
+                    }
+                )
+                data = response.json()
+                if "choices" in data and data["choices"]:
+                    result = data["choices"][0]["message"]["content"].strip()
+                    if result:
+                        logger.info(f"OpenRouter success with model: {model}")
+                        return result
+                logger.warning(f"Model {model} returned empty, trying fallback...")
+        except Exception as e:
+            logger.error(f"OpenRouter error with {model}: {e}")
+    return None
 
 
 def is_relevant_news(title: str, summary: str) -> bool:
