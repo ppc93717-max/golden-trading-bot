@@ -163,7 +163,7 @@ def analyze_news(article: dict) -> Optional[dict]:
   }},
   "overall_analysis": "تحليل شامل في 2-3 جمل عربية"
 }}"""
-    text = call_groq(prompt)
+    text = call_openrouter(prompt)
     if not text:
         return None
     try:
@@ -209,7 +209,7 @@ def generate_session_briefing(session: str) -> str:
   "events_to_watch": ["حدث1", "حدث2"]
 }}"""
     
-    text = call_groq(prompt, max_tokens=2000)
+    text = call_openrouter(prompt, max_tokens=2000)
     if not text:
         return None
     try:
@@ -306,7 +306,7 @@ def generate_daily_report() -> str:
   "overall_outlook": "نظرة عامة على الغد والاسبوع القادم"
 }}"""
     
-    text = call_groq(prompt, max_tokens=2500)
+    text = call_openrouter(prompt, max_tokens=2500)
     if not text:
         return None
     try:
@@ -532,7 +532,7 @@ def generate_economic_calendar() -> Optional[dict]:
   "trading_advice": "نصيحة تداول عامة لهذا اليوم"
 }}"""
 
-    text = call_groq(prompt, max_tokens=3000)
+    text = call_openrouter(prompt, max_tokens=3000)
     if not text:
         return None
     try:
