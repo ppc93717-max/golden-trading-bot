@@ -25,9 +25,9 @@ import threading
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
 OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-OPENROUTER_FALLBACK = "deepseek/deepseek-chat:free"
-OPENROUTER_FALLBACK2 = "mistralai/mistral-7b-instruct:free"
+OPENROUTER_MODEL = "openrouter/auto"
+OPENROUTER_FALLBACK = "meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_FALLBACK2 = "google/gemma-3-27b-it:free"
 CHECK_INTERVAL_MINUTES = 15
 
 MARKETS = ["EURUSD", "GBPUSD", "DXY", "US100", "US30", "WTI", "GOLD", "USDCAD", "BTC"]
@@ -76,7 +76,8 @@ def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
     models = [OPENROUTER_MODEL, OPENROUTER_FALLBACK, OPENROUTER_FALLBACK2]
     for model in models:
         try:
-            with httpx.Client(timeout=60) as client:
+            logger.info(f"Trying model: {model}")
+            with httpx.Client(timeout=90) as client:
                 response = client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={
@@ -92,15 +93,26 @@ def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
                         "temperature": 0.3
                     }
                 )
+                logger.info(f"Response status: {response.status_code}")
+                if response.status_code == 401:
+                    logger.error("API Key unauthorized - check OpenRouter key")
+                    return None
+                if response.status_code == 429:
+                    logger.warning(f"Rate limit on {model}, trying next...")
+                    continue
                 data = response.json()
+                if "error" in data:
+                    logger.warning(f"Model {model} error: {data['error']}, trying next...")
+                    continue
                 if "choices" in data and data["choices"]:
                     result = data["choices"][0]["message"]["content"].strip()
                     if result:
-                        logger.info(f"OpenRouter success with model: {model}")
+                        logger.info(f"Success with model: {model}")
                         return result
-                logger.warning(f"Model {model} returned empty, trying fallback...")
+                logger.warning(f"Model {model} empty response, trying next...")
         except Exception as e:
             logger.error(f"OpenRouter error with {model}: {e}")
+    logger.error("All models failed!")
     return None
 
 
@@ -629,6 +641,10 @@ def run_scheduler():
     schedule.every().day.at("07:00").do(
         lambda: asyncio.run(send_london_briefing())
     )
+    # 🇺🇸 New York — 14:00 Morocco = 13:00 UTC
+    schedule.every().day.at("13:00").do(
+        lambda: asyncio.run(send_newyork_briefing())
+    )
     # 📋 Evening Report — 21:00 Morocco = 20:00 UTC
     schedule.every().day.at("20:00").do(
         lambda: asyncio.run(send_evening_report())
@@ -646,6 +662,7 @@ async def send_startup_message():
         "🆕 *الميزات الجديدة:*\n"
         "📅 07:00 صباحاً — الأجندة الاقتصادية + توقعات الأخبار\n"
         "🇬🇧 08:00 صباحاً — ملخص جلسة لندن + BUY/SELL/WAIT\n"
+        "🇺🇸 14:00 ظهراً — ملخص جلسة نيويورك + BUY/SELL/WAIT\n"
         "📋 21:00 مساءً — تقرير يومي شامل + توقعات الغد\n"
         "🚨 فور نشر اي خبر مهم — تحليل فوري كامل\n\n"
         "📊 *الاسواق:* EUR/USD | GBP/USD | DXY\n"
