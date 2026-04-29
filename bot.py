@@ -24,7 +24,7 @@ import threading
 # ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 OPENROUTER_FALLBACK = "deepseek/deepseek-chat:free"
 OPENROUTER_FALLBACK2 = "mistralai/mistral-7b-instruct:free"
