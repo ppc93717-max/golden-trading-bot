@@ -24,10 +24,9 @@ import threading
 # ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
-OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "openrouter/auto"
-OPENROUTER_FALLBACK = "meta-llama/llama-3.3-70b-instruct:free"
-OPENROUTER_FALLBACK2 = "google/gemma-3-27b-it:free"
+GROQ_API_KEY = "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"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_FALLBACK = "mixtral-8x7b-32768"
 CHECK_INTERVAL_MINUTES = 15
 
 MARKETS = ["EURUSD", "GBPUSD", "DXY", "US100", "US30", "WTI", "GOLD", "USDCAD", "BTC"]
@@ -72,19 +71,17 @@ daily_news_cache = []  # Store today's news for evening report
 
 
 def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
-    """Generic OpenRouter API call with fallback models"""
-    models = [OPENROUTER_MODEL, OPENROUTER_FALLBACK, OPENROUTER_FALLBACK2]
+    """Call Groq API - Free & Fast"""
+    models = [GROQ_MODEL, GROQ_FALLBACK]
     for model in models:
         try:
-            logger.info(f"Trying model: {model}")
-            with httpx.Client(timeout=90) as client:
+            logger.info(f"Trying Groq model: {model}")
+            with httpx.Client(timeout=60) as client:
                 response = client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
+                    "https://api.groq.com/openai/v1/chat/completions",
                     headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
                         "Content-Type": "application/json",
-                        "HTTP-Referer": "https://golden-trading-news-bot.com",
-                        "X-Title": "Golden Trading News Bot"
                     },
                     json={
                         "model": model,
@@ -93,26 +90,19 @@ def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
                         "temperature": 0.3
                     }
                 )
-                logger.info(f"Response status: {response.status_code}")
-                if response.status_code == 401:
-                    logger.error("API Key unauthorized - check OpenRouter key")
-                    return None
-                if response.status_code == 429:
-                    logger.warning(f"Rate limit on {model}, trying next...")
+                logger.info(f"Groq status: {response.status_code}")
+                if response.status_code != 200:
+                    logger.warning(f"Groq {model} returned {response.status_code}, trying next...")
                     continue
                 data = response.json()
-                if "error" in data:
-                    logger.warning(f"Model {model} error: {data['error']}, trying next...")
-                    continue
                 if "choices" in data and data["choices"]:
                     result = data["choices"][0]["message"]["content"].strip()
                     if result:
-                        logger.info(f"Success with model: {model}")
+                        logger.info(f"Groq success with: {model}")
                         return result
-                logger.warning(f"Model {model} empty response, trying next...")
         except Exception as e:
-            logger.error(f"OpenRouter error with {model}: {e}")
-    logger.error("All models failed!")
+            logger.error(f"Groq error with {model}: {e}")
+    logger.error("All Groq models failed!")
     return None
 
 
@@ -173,7 +163,7 @@ def analyze_news(article: dict) -> Optional[dict]:
   }},
   "overall_analysis": "تحليل شامل في 2-3 جمل عربية"
 }}"""
-    text = call_openrouter(prompt)
+    text = call_groq(prompt)
     if not text:
         return None
     try:
@@ -219,7 +209,7 @@ def generate_session_briefing(session: str) -> str:
   "events_to_watch": ["حدث1", "حدث2"]
 }}"""
     
-    text = call_openrouter(prompt, max_tokens=2000)
+    text = call_groq(prompt, max_tokens=2000)
     if not text:
         return None
     try:
@@ -316,7 +306,7 @@ def generate_daily_report() -> str:
   "overall_outlook": "نظرة عامة على الغد والاسبوع القادم"
 }}"""
     
-    text = call_openrouter(prompt, max_tokens=2500)
+    text = call_groq(prompt, max_tokens=2500)
     if not text:
         return None
     try:
@@ -542,7 +532,7 @@ def generate_economic_calendar() -> Optional[dict]:
   "trading_advice": "نصيحة تداول عامة لهذا اليوم"
 }}"""
 
-    text = call_openrouter(prompt, max_tokens=3000)
+    text = call_groq(prompt, max_tokens=3000)
     if not text:
         return None
     try:
