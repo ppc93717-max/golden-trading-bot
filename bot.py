@@ -484,6 +484,135 @@ async def send_evening_report():
         await send_telegram_message("⚠️ تعذر تحضير التقرير اليومي.")
 
 
+
+# ═══════════════════════════════════════════════════════════════
+#  DAILY ECONOMIC CALENDAR — 07:00 UTC (08:00 Morocco)
+# ═══════════════════════════════════════════════════════════════
+def generate_economic_calendar() -> Optional[dict]:
+    today = datetime.now(timezone.utc).strftime('%A %d %B %Y')
+    prompt = f"""انت محلل مالي خبير. اليوم هو {today}.
+
+قدم الاجندة الاقتصادية الكاملة لهذا اليوم — كل الاحداث والبيانات الاقتصادية المقررة اليوم.
+
+اجب بـ JSON فقط:
+{{
+  "date": "{today}",
+  "market_overview": "نظرة عامة على اليوم وما يجب توقعه",
+  "events": [
+    {{
+      "time_utc": "وقت الحدث UTC",
+      "time_morocco": "الوقت بتوقيت المغرب",
+      "event": "اسم الحدث",
+      "currency": "العملة او السوق المتأثر",
+      "importance": "HIGH or MEDIUM or LOW",
+      "previous": "القيمة السابقة",
+      "forecast": "التوقعات",
+      "expected_outcome": "BETTER or WORSE or INLINE",
+      "expected_outcome_ar": "افضل من المتوقع or اسوا من المتوقع or كما متوقع",
+      "probability": "نسبة احتمال الخروج ايجابي مثل 70%",
+      "markets_impact": {{
+        "EURUSD": "UP or DOWN or NEUTRAL",
+        "GBPUSD": "UP or DOWN or NEUTRAL",
+        "DXY": "UP or DOWN or NEUTRAL",
+        "US100": "UP or DOWN or NEUTRAL",
+        "US30": "UP or DOWN or NEUTRAL",
+        "WTI": "UP or DOWN or NEUTRAL",
+        "GOLD": "UP or DOWN or NEUTRAL",
+        "USDCAD": "UP or DOWN or NEUTRAL",
+        "BTC": "UP or DOWN or NEUTRAL"
+      }},
+      "analysis": "تحليل مختصر للحدث وتأثيره المتوقع"
+    }}
+  ],
+  "most_important_event": "اهم حدث اليوم",
+  "day_bias": "RISK_ON or RISK_OFF or NEUTRAL",
+  "day_bias_ar": "شهية مخاطرة or نفور من المخاطرة or محايد",
+  "trading_advice": "نصيحة تداول عامة لهذا اليوم"
+}}"""
+
+    text = call_openrouter(prompt, max_tokens=3000)
+    if not text:
+        return None
+    try:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        return json.loads(match.group() if match else text)
+    except:
+        return None
+
+
+def format_economic_calendar(data: dict) -> str:
+    importance_emoji = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
+    direction_emoji = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
+    outcome_emoji = {"BETTER": "✅", "WORSE": "❌", "INLINE": "⚖️"}
+    bias_emoji = {"RISK_ON": "🟢 شهية مخاطرة", "RISK_OFF": "🔴 نفور من المخاطرة", "NEUTRAL": "🟡 محايد"}
+
+    events = data.get("events", [])
+    events_text = ""
+
+    for i, event in enumerate(events, 1):
+        imp = event.get("importance", "LOW")
+        imp_e = importance_emoji.get(imp, "⚪")
+        out_e = outcome_emoji.get(event.get("expected_outcome", "INLINE"), "⚖️")
+        prob = event.get("probability", "50%")
+        
+        # Market impacts
+        impacts = event.get("markets_impact", {})
+        impact_line = ""
+        for key, label in [("EURUSD","EUR"), ("GBPUSD","GBP"), ("DXY","DXY"),
+                            ("US100","NQ"), ("US30","DJ"), ("WTI","OIL"),
+                            ("GOLD","XAU"), ("USDCAD","CAD"), ("BTC","BTC")]:
+            d = impacts.get(key, "NEUTRAL")
+            de = direction_emoji.get(d, "➡️")
+            impact_line += f"{de}{label} "
+
+        events_text += (
+            f"\n{'─'*28}\n"
+            f"{imp_e} *{event.get('event', '')}*\n"
+            f"🕐 {event.get('time_morocco', '')} (المغرب) | {event.get('time_utc', '')} UTC\n"
+            f"💱 {event.get('currency', '')}\n"
+            f"📊 السابق: `{event.get('previous', 'N/A')}` | المتوقع: `{event.get('forecast', 'N/A')}`\n"
+            f"{out_e} التوقع: {event.get('expected_outcome_ar', '')} | احتمال: {prob}\n"
+            f"📉 التأثير: {impact_line}\n"
+            f"💡 {event.get('analysis', '')}\n"
+        )
+
+    bias = data.get("day_bias", "NEUTRAL")
+    bias_text = bias_emoji.get(bias, "🟡 محايد")
+    time_now = datetime.now(timezone.utc).strftime('%d/%m/%Y')
+
+    msg = (
+        f"🏆 *GOLDEN TRADING NEWS*\n"
+        f"{'━'*30}\n"
+        f"📅 *الأجندة الاقتصادية اليومية*\n"
+        f"🗓 {time_now} | 08:00 صباحاً (المغرب)\n"
+        f"{'─'*30}\n\n"
+        f"📌 *نظرة عامة على اليوم:*\n"
+        f"{data.get('market_overview', '')}\n\n"
+        f"🎯 *أهم حدث اليوم:* {data.get('most_important_event', '')}\n"
+        f"🌡 *مزاج السوق المتوقع:* {bias_text}\n"
+        f"{'─'*30}\n"
+        f"⏰ *الأحداث الاقتصادية المقررة:*"
+        f"{events_text}\n"
+        f"{'─'*30}\n"
+        f"💼 *نصيحة اليوم:*\n"
+        f"{data.get('trading_advice', '')}\n"
+        f"{'━'*30}"
+    )
+    return msg
+
+
+async def send_economic_calendar():
+    logger.info("Generating daily economic calendar...")
+    await send_telegram_message(
+        "📅 *الأجندة الاقتصادية — جاري التحضير...*\n_يرجى الانتظار لحظة_ ⏳"
+    )
+    data = generate_economic_calendar()
+    if data:
+        msg = format_economic_calendar(data)
+        await send_telegram_message(msg)
+    else:
+        await send_telegram_message("⚠️ تعذر تحضير الأجندة الاقتصادية اليوم.")
+
 # ═══════════════════════════════════════════════════════════════
 #  SCHEDULER
 # ═══════════════════════════════════════════════════════════════
@@ -492,16 +621,16 @@ def run_scheduler():
     schedule.every(CHECK_INTERVAL_MINUTES).minutes.do(
         lambda: asyncio.run(check_and_send_news())
     )
-    # London Open — 08:00 UTC
-    schedule.every().day.at("08:00").do(
+    # 📅 Agenda — 07:00 Morocco = 06:00 UTC
+    schedule.every().day.at("06:00").do(
+        lambda: asyncio.run(send_economic_calendar())
+    )
+    # 🇬🇧 London — 08:00 Morocco = 07:00 UTC
+    schedule.every().day.at("07:00").do(
         lambda: asyncio.run(send_london_briefing())
     )
-    # New York Open — 13:00 UTC
-    schedule.every().day.at("13:00").do(
-        lambda: asyncio.run(send_newyork_briefing())
-    )
-    # Evening Report — 21:00 UTC
-    schedule.every().day.at("21:00").do(
+    # 📋 Evening Report — 21:00 Morocco = 20:00 UTC
+    schedule.every().day.at("20:00").do(
         lambda: asyncio.run(send_evening_report())
     )
     while True:
@@ -515,9 +644,9 @@ async def send_startup_message():
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "✅ البوت يعمل الان 24/7!\n\n"
         "🆕 *الميزات الجديدة:*\n"
-        "🇬🇧 08:00 UTC — ملخص جلسة لندن + BUY/SELL/WAIT\n"
-        "🇺🇸 13:00 UTC — ملخص جلسة نيويورك + BUY/SELL/WAIT\n"
-        "📋 21:00 UTC — تقرير يومي شامل + توقعات الغد\n"
+        "📅 07:00 صباحاً — الأجندة الاقتصادية + توقعات الأخبار\n"
+        "🇬🇧 08:00 صباحاً — ملخص جلسة لندن + BUY/SELL/WAIT\n"
+        "📋 21:00 مساءً — تقرير يومي شامل + توقعات الغد\n"
         "🚨 فور نشر اي خبر مهم — تحليل فوري كامل\n\n"
         "📊 *الاسواق:* EUR/USD | GBP/USD | DXY\n"
         "US100 | US30 | WTI | GOLD | USD/CAD | BTC\n\n"
@@ -538,7 +667,15 @@ async def send_startup_message():
 async def main():
     logger.info("Starting GOLDEN TRADING NEWS BOT — FULL VERSION")
     await send_startup_message()
+    
+    # Send all missed reports immediately on startup
+    logger.info("Sending missed daily reports...")
+    await send_economic_calendar()
+    await asyncio.sleep(3)
+    await send_london_briefing()
+    await asyncio.sleep(3)
     await check_and_send_news()
+    
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("Bot running 24/7")
