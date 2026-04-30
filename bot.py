@@ -724,7 +724,34 @@ async def send_startup_message():
 async def main():
     logger.info("Starting GOLDEN TRADING NEWS BOT — FINAL VERSION")
     await send_startup_message()
+
+    # Send any missed scheduled reports based on current time (Morocco = UTC+1)
+    now_utc = datetime.now(timezone.utc)
+    now_morocco_hour = (now_utc.hour + 1) % 24  # UTC+1
+
+    logger.info(f"Current Morocco time: {now_morocco_hour}:00 — checking missed reports...")
+
+    # If past 07:00 Morocco (06:00 UTC) — send agenda
+    if now_morocco_hour >= 7:
+        logger.info("Sending missed economic calendar...")
+        await send_economic_calendar()
+        await asyncio.sleep(5)
+
+    # If past 08:00 Morocco (07:00 UTC) — send London
+    if now_morocco_hour >= 8:
+        logger.info("Sending missed London briefing...")
+        await send_london_briefing()
+        await asyncio.sleep(5)
+
+    # If past 14:00 Morocco (13:00 UTC) — send NY
+    if now_morocco_hour >= 14:
+        logger.info("Sending missed NY briefing...")
+        await send_newyork_briefing()
+        await asyncio.sleep(5)
+
+    # Always check news on startup
     await check_and_send_news()
+
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("Bot running 24/7")
