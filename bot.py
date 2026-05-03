@@ -26,7 +26,7 @@ import threading
 # ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_FALLBACK = "mixtral-8x7b-32768"
 CHECK_INTERVAL_MINUTES = 10
@@ -53,6 +53,12 @@ NEWS_SOURCES = [
     {"name": "CoinDesk BTC",      "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",      "priority": "MEDIUM"},
     {"name": "Nasdaq News",       "url": "https://www.nasdaq.com/feed/rssoutbound?category=Markets", "priority": "MEDIUM"},
     {"name": "EIA Energy",        "url": "https://www.eia.gov/rss/press_room.xml",               "priority": "MEDIUM"},
+    # Trump & Officials monitoring
+    {"name": "Trump TruthSocial",  "url": "https://trumpstruth.org/feed",                           "priority": "HIGH"},
+    {"name": "Reuters Politics",   "url": "https://feeds.reuters.com/Reuters/PoliticsNews",          "priority": "HIGH"},
+    {"name": "Bloomberg Politics", "url": "https://feeds.bloomberg.com/politics/news.rss",           "priority": "HIGH"},
+    {"name": "Politico Economy",   "url": "https://rss.politico.com/economy.xml",                   "priority": "HIGH"},
+    {"name": "WSJ Economy",        "url": "https://feeds.a.dj.com/rss/RSSEconomics.xml",            "priority": "HIGH"},
 ]
 
 # ═══════════════════════════════════════════════════════════════
@@ -498,9 +504,58 @@ def format_session_message(session: str, data: dict) -> str:
 # ═══════════════════════════════════════════════════════════════
 #  ECONOMIC CALENDAR
 # ═══════════════════════════════════════════════════════════════
+def fetch_forex_factory_calendar() -> list:
+    """Fetch real economic events directly from Forex Factory RSS"""
+    events = []
+    try:
+        logger.info("Fetching Forex Factory calendar...")
+        feed = feedparser.parse("https://www.forexfactory.com/calendar?format=xml")
+        for entry in feed.entries[:30]:
+            title = entry.get("title", "")
+            summary = re.sub(r'<[^>]+>', '', entry.get("summary", entry.get("description", "")))
+            link = entry.get("link", "")
+            
+            # Determine importance from title keywords
+            importance = "LOW"
+            high_kw = ["interest rate", "nfp", "nonfarm", "cpi", "gdp", "fomc", "ecb", 
+                      "boe", "official bank rate", "fed", "pce", "unemployment claims"]
+            med_kw = ["pmi", "ism", "retail", "housing", "consumer", "inflation",
+                     "employment", "trade balance", "gdp prelim"]
+            
+            t_lower = title.lower()
+            if any(k in t_lower for k in high_kw):
+                importance = "HIGH"
+            elif any(k in t_lower for k in med_kw):
+                importance = "MEDIUM"
+            
+            if importance in ["HIGH", "MEDIUM"]:
+                events.append({
+                    "event": title,
+                    "summary": summary,
+                    "importance": importance,
+                    "link": link,
+                    "time_utc": entry.get("published", ""),
+                })
+        logger.info(f"Forex Factory: found {len(events)} events")
+    except Exception as e:
+        logger.error(f"Forex Factory fetch error: {e}")
+    return events
+
+
 def generate_economic_calendar() -> Optional[dict]:
     today = datetime.now(timezone.utc).strftime('%A %d %B %Y')
-    prompt = f"""انت محلل مالي خبير. اليوم {today}. قدم الأجندة الاقتصادية الكاملة لهذا اليوم بما فيها:
+    
+    # Get real events from Forex Factory
+    ff_events = fetch_forex_factory_calendar()
+    ff_text = ""
+    if ff_events:
+        ff_text = "\n\nأحداث حقيقية من Forex Factory اليوم:\n"
+        for ev in ff_events[:15]:
+            ff_text += f"- [{ev['importance']}] {ev['event']}\n"
+    
+    prompt = f"""انت محلل مالي خبير. اليوم {today}.{ff_text}
+
+قدم الأجندة الاقتصادية الكاملة لهذا اليوم بما فيها:
 - قرارات البنوك المركزية (Fed/ECB/BOE وغيرها)
 - البيانات الاقتصادية المهمة (NFP/CPI/GDP/PMI وغيرها)
 - خطابات المسؤولين المهمة
