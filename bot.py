@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-GOLDEN TRADING NEWS BOT - FINAL VERSION
-✅ Real-time news alerts with 5-min pre-alerts
-✅ London/NY session briefings
-✅ Daily economic calendar at 07:00
-✅ Evening report at 21:00
-✅ FOMC & high-impact event special coverage
+GOLDEN TRADING NEWS BOT - ULTIMATE VERSION
+✅ 18 news sources
+✅ Comprehensive keywords for ALL central banks
+✅ Pre-alerts 5 min before major events
+✅ Special FOMC/BOE/ECB analysis
+✅ Daily schedule: Agenda 07:00, London 08:00, NY 14:00, Report 21:00
+✅ Smart startup - sends missed reports automatically
 """
 
 import asyncio
 import logging
 import json
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 import httpx
 from telegram import Bot
@@ -28,10 +29,10 @@ TELEGRAM_CHAT_ID = "7782912937"
 GROQ_API_KEY = "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"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_FALLBACK = "mixtral-8x7b-32768"
-CHECK_INTERVAL_MINUTES = 15
+CHECK_INTERVAL_MINUTES = 10
 
 # ═══════════════════════════════════════════════════════════════
-#  NEWS SOURCES - 18 Sources
+#  18 NEWS SOURCES
 # ═══════════════════════════════════════════════════════════════
 NEWS_SOURCES = [
     {"name": "Reuters Markets",   "url": "https://feeds.reuters.com/reuters/businessNews",        "priority": "HIGH"},
@@ -42,9 +43,9 @@ NEWS_SOURCES = [
     {"name": "Investing Forex",   "url": "https://www.investing.com/rss/news_285.rss",           "priority": "HIGH"},
     {"name": "Forex Factory",     "url": "https://www.forexfactory.com/news?format=xml",         "priority": "HIGH"},
     {"name": "MyFXBook",          "url": "https://www.myfxbook.com/rss/forex-economic-calendar", "priority": "HIGH"},
+    {"name": "DailyFX",           "url": "https://www.dailyfx.com/feeds/all",                    "priority": "HIGH"},
     {"name": "Fed Reserve",       "url": "https://www.federalreserve.gov/feeds/press_all.xml",   "priority": "HIGH"},
     {"name": "ECB News",          "url": "https://www.ecb.europa.eu/rss/press.html",             "priority": "HIGH"},
-    {"name": "DailyFX",           "url": "https://www.dailyfx.com/feeds/all",                    "priority": "HIGH"},
     {"name": "CNBC Markets",      "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114", "priority": "MEDIUM"},
     {"name": "Yahoo Finance",     "url": "https://finance.yahoo.com/news/rssindex",              "priority": "MEDIUM"},
     {"name": "Kitco Gold",        "url": "https://www.kitco.com/rss/lo-news.xml",                "priority": "MEDIUM"},
@@ -55,56 +56,135 @@ NEWS_SOURCES = [
 ]
 
 # ═══════════════════════════════════════════════════════════════
-#  HIGH IMPACT ECONOMIC EVENTS (for 5-min pre-alerts)
+#  HIGH IMPACT EVENTS - Pre-alert triggers
 # ═══════════════════════════════════════════════════════════════
 HIGH_IMPACT_EVENTS = {
-    "fomc": {"name": "قرار الفيدرالي الأمريكي (FOMC)", "currency": "USD", "emoji": "🏦🇺🇸"},
-    "federal reserve": {"name": "قرار الفيدرالي الأمريكي", "currency": "USD", "emoji": "🏦🇺🇸"},
-    "interest rate": {"name": "قرار سعر الفائدة", "currency": "USD", "emoji": "💰"},
-    "rate decision": {"name": "قرار سعر الفائدة", "currency": "USD", "emoji": "💰"},
-    "nonfarm payroll": {"name": "بيانات الوظائف (NFP)", "currency": "USD", "emoji": "👷🇺🇸"},
-    "nfp": {"name": "بيانات الوظائف (NFP)", "currency": "USD", "emoji": "👷🇺🇸"},
-    "cpi": {"name": "مؤشر أسعار المستهلكين (CPI)", "currency": "USD", "emoji": "📊"},
-    "inflation": {"name": "بيانات التضخم", "currency": "USD", "emoji": "📊"},
-    "gdp": {"name": "الناتج المحلي الإجمالي (GDP)", "currency": "USD", "emoji": "📈"},
-    "ecb": {"name": "قرار البنك المركزي الأوروبي (ECB)", "currency": "EUR", "emoji": "🏦🇪🇺"},
-    "bank of england": {"name": "قرار بنك إنجلترا (BOE)", "currency": "GBP", "emoji": "🏦🇬🇧"},
-    "powell": {"name": "خطاب رئيس الفيدرالي باول", "currency": "USD", "emoji": "🎤🇺🇸"},
-    "trump": {"name": "تصريح ترامب", "currency": "USD", "emoji": "🇺🇸"},
-    "opec": {"name": "قرار أوبك", "currency": "OIL", "emoji": "🛢️"},
+    # US Federal Reserve
+    "fomc": {"name": "قرار الفيدرالي الأمريكي (FOMC)", "currency": "USD 🇺🇸", "emoji": "🏦🇺🇸"},
+    "federal reserve": {"name": "قرار الفيدرالي الأمريكي", "currency": "USD 🇺🇸", "emoji": "🏦🇺🇸"},
+    "fed rate": {"name": "قرار سعر الفائدة الأمريكي", "currency": "USD 🇺🇸", "emoji": "💰🇺🇸"},
+    "powell": {"name": "خطاب رئيس الفيدرالي باول", "currency": "USD 🇺🇸", "emoji": "🎤🇺🇸"},
+    # ECB
+    "ecb rate": {"name": "قرار سعر الفائدة الأوروبي (ECB)", "currency": "EUR 🇪🇺", "emoji": "🏦🇪🇺"},
+    "main refinancing rate": {"name": "سعر إعادة التمويل الأوروبي (ECB)", "currency": "EUR 🇪🇺", "emoji": "🏦🇪🇺"},
+    "ecb press conference": {"name": "مؤتمر صحفي ECB — لاغارد", "currency": "EUR 🇪🇺", "emoji": "🎤🇪🇺"},
+    "lagarde": {"name": "خطاب رئيسة ECB لاغارد", "currency": "EUR 🇪🇺", "emoji": "🎤🇪🇺"},
+    "monetary policy statement": {"name": "بيان السياسة النقدية", "currency": "EUR/GBP", "emoji": "📋"},
+    # BOE
+    "official bank rate": {"name": "قرار سعر الفائدة البريطاني (BOE)", "currency": "GBP 🇬🇧", "emoji": "🏦🇬🇧"},
+    "bank of england rate": {"name": "قرار بنك إنجلترا", "currency": "GBP 🇬🇧", "emoji": "🏦🇬🇧"},
+    "mpc vote": {"name": "تصويت لجنة السياسة النقدية BOE", "currency": "GBP 🇬🇧", "emoji": "🏦🇬🇧"},
+    "boe rate": {"name": "قرار بنك إنجلترا", "currency": "GBP 🇬🇧", "emoji": "🏦🇬🇧"},
+    "bailey": {"name": "خطاب محافظ BOE بيلي", "currency": "GBP 🇬🇧", "emoji": "🎤🇬🇧"},
+    "monetary policy report": {"name": "تقرير السياسة النقدية BOE", "currency": "GBP 🇬🇧", "emoji": "📋🇬🇧"},
+    # US Data
+    "nonfarm payroll": {"name": "بيانات الوظائف (NFP) 🔥", "currency": "USD 🇺🇸", "emoji": "👷🇺🇸"},
+    "nfp": {"name": "تقرير الوظائف (NFP) 🔥", "currency": "USD 🇺🇸", "emoji": "👷🇺🇸"},
+    "cpi": {"name": "مؤشر أسعار المستهلكين (CPI)", "currency": "USD 🇺🇸", "emoji": "📊🇺🇸"},
+    "core cpi": {"name": "مؤشر CPI الأساسي", "currency": "USD 🇺🇸", "emoji": "📊🇺🇸"},
+    "pce": {"name": "مؤشر PCE للتضخم", "currency": "USD 🇺🇸", "emoji": "📊🇺🇸"},
+    "core pce": {"name": "مؤشر PCE الأساسي", "currency": "USD 🇺🇸", "emoji": "📊🇺🇸"},
+    "gdp": {"name": "الناتج المحلي الإجمالي (GDP)", "currency": "USD 🇺🇸", "emoji": "📈🇺🇸"},
+    "advance gdp": {"name": "أولى بيانات GDP", "currency": "USD 🇺🇸", "emoji": "📈🇺🇸"},
+    "unemployment claims": {"name": "طلبات إعانة البطالة", "currency": "USD 🇺🇸", "emoji": "📋🇺🇸"},
+    "employment cost": {"name": "مؤشر تكلفة التوظيف", "currency": "USD 🇺🇸", "emoji": "📋🇺🇸"},
+    "ism manufacturing": {"name": "مؤشر ISM التصنيعي", "currency": "USD 🇺🇸", "emoji": "🏭🇺🇸"},
+    "ism services": {"name": "مؤشر ISM الخدماتي", "currency": "USD 🇺🇸", "emoji": "🏢🇺🇸"},
+    "chicago pmi": {"name": "مؤشر PMI شيكاغو", "currency": "USD 🇺🇸", "emoji": "📊🇺🇸"},
+    "retail sales": {"name": "بيانات مبيعات التجزئة", "currency": "USD 🇺🇸", "emoji": "🛍️🇺🇸"},
+    # EUR Data
+    "cpi flash": {"name": "مؤشر CPI الأوروبي الأولي", "currency": "EUR 🇪🇺", "emoji": "📊🇪🇺"},
+    "german gdp": {"name": "GDP الألماني", "currency": "EUR 🇪🇺", "emoji": "📈🇩🇪"},
+    "german unemployment": {"name": "البطالة الألمانية", "currency": "EUR 🇪🇺", "emoji": "📋🇩🇪"},
+    "eurozone gdp": {"name": "GDP منطقة اليورو", "currency": "EUR 🇪🇺", "emoji": "📈🇪🇺"},
+    # GBP Data
+    "uk cpi": {"name": "مؤشر CPI البريطاني", "currency": "GBP 🇬🇧", "emoji": "📊🇬🇧"},
+    "uk gdp": {"name": "GDP البريطاني", "currency": "GBP 🇬🇧", "emoji": "📈🇬🇧"},
+    "uk employment": {"name": "بيانات التوظيف البريطانية", "currency": "GBP 🇬🇧", "emoji": "👷🇬🇧"},
+    # CAD & OIL
+    "canada gdp": {"name": "GDP الكندي", "currency": "CAD 🇨🇦", "emoji": "📈🇨🇦"},
+    "crude oil inventories": {"name": "مخزونات النفط الخام", "currency": "OIL 🛢️", "emoji": "🛢️"},
+    "opec": {"name": "قرار أوبك", "currency": "OIL 🛢️", "emoji": "🛢️"},
+    # Trump & Geopolitics
+    "trump": {"name": "تصريح ترامب", "currency": "USD 🇺🇸", "emoji": "🇺🇸"},
+    "tariff": {"name": "قرار رسوم جمركية", "currency": "USD 🇺🇸", "emoji": "⚠️🇺🇸"},
+    "trade war": {"name": "تطور في الحرب التجارية", "currency": "USD 🇺🇸", "emoji": "⚔️"},
 }
 
+# ═══════════════════════════════════════════════════════════════
+#  COMPREHENSIVE KEYWORDS
+# ═══════════════════════════════════════════════════════════════
 HIGH_IMPACT_KEYWORDS = [
-    "trump", "powell", "yellen", "federal reserve", "fed",
-    "lagarde", "ecb", "bank of england", "boe", "bailey",
-    "opec", "saudi", "russia", "bessent", "g7", "g20", "imf",
-    "interest rate", "rate hike", "rate cut", "inflation", "cpi", "pce",
-    "nonfarm payroll", "nfp", "gdp", "unemployment", "jobs report",
-    "fomc", "monetary policy", "quantitative",
-    "tariff", "trade war", "sanctions", "trade deal", "recession",
-    "gold", "oil", "crude", "wti", "brent",
-    "bitcoin", "btc", "crypto",
-    "dollar", "usd", "euro", "pound", "gbp", "eur", "cad",
-    "nasdaq", "s&p", "dow jones", "forex", "fx", "bond", "yield",
+    # Central Banks & Officials
+    "federal reserve", "fed", "fomc", "powell", "fed rate",
+    "ecb", "european central bank", "lagarde", "ecb rate", "main refinancing",
+    "bank of england", "boe", "bailey", "mpc", "official bank rate",
+    "monetary policy", "monetary policy report", "monetary policy summary",
+    "monetary policy statement", "interest rate", "rate decision",
+    "rate hike", "rate cut", "basis points", "bps",
+    "bank of japan", "boj", "ueda", "bank of canada", "boc",
+    "reserve bank", "rba", "snb", "swiss national bank",
+    # US Economic Data
+    "nonfarm payroll", "nfp", "jobs report", "employment",
+    "unemployment", "unemployment claims", "jobless claims",
+    "cpi", "core cpi", "inflation", "deflation",
+    "pce", "core pce", "personal consumption",
+    "gdp", "advance gdp", "gross domestic product",
+    "retail sales", "core retail sales",
+    "ism manufacturing", "ism services", "pmi",
+    "chicago pmi", "empire state", "philly fed",
+    "housing starts", "building permits", "existing home sales",
+    "consumer confidence", "consumer sentiment", "michigan",
+    "durable goods", "factory orders", "trade balance",
+    "employment cost", "productivity", "unit labor costs",
+    # EUR Economic Data
+    "cpi flash", "cpi estimate", "flash gdp", "prelim gdp",
+    "german gdp", "german cpi", "german unemployment", "german ifo",
+    "eurozone gdp", "eurozone cpi", "eurozone unemployment",
+    "eurozone pmi", "eurozone retail", "eurozone inflation",
+    "french gdp", "french cpi", "italian gdp",
+    "zew", "ifo", "sentix",
+    # GBP Economic Data
+    "uk cpi", "uk gdp", "uk pmi", "uk employment",
+    "uk retail sales", "uk inflation", "uk unemployment",
+    "claimant count", "average earnings",
+    # Commodities & Markets
+    "gold", "xauusd", "silver",
+    "oil", "crude oil", "wti", "brent", "opec",
+    "crude oil inventories", "eia", "energy",
+    "bitcoin", "btc", "crypto", "ethereum",
+    "nasdaq", "s&p 500", "sp500", "dow jones", "russell",
+    # Geopolitics & Trade
+    "trump", "tariff", "trade war", "sanctions", "trade deal",
+    "trade deficit", "trade surplus",
+    "geopolitical", "war", "conflict", "ceasefire",
+    "china", "russia", "ukraine", "middle east",
+    "g7", "g20", "imf", "world bank", "bis",
+    # FX & General
+    "dollar", "usd", "euro", "eur", "pound", "gbp",
+    "yen", "jpy", "cad", "aud", "nzd", "chf",
+    "forex", "fx", "currency", "exchange rate",
+    "bond", "yield", "treasury", "10-year", "2-year",
+    "recession", "stagflation", "gdp growth", "economic growth",
+    "earnings", "revenue", "profit", "eps",
 ]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 seen_articles = set()
 daily_news_cache = []
-sent_pre_alerts = set()  # Track sent pre-alerts
+sent_pre_alerts = set()
 
 
 # ═══════════════════════════════════════════════════════════════
 #  GROQ API
 # ═══════════════════════════════════════════════════════════════
 def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
-    """Call Groq API - Free & Fast"""
     models = [GROQ_MODEL, GROQ_FALLBACK]
     for model in models:
         try:
             logger.info(f"Calling Groq: {model}")
-            with httpx.Client(timeout=60) as client:
+            with httpx.Client(timeout=90) as client:
                 response = client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={
@@ -120,10 +200,10 @@ def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
                 )
                 if response.status_code == 429:
                     logger.warning(f"Rate limit {model}, trying fallback...")
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                 if response.status_code != 200:
-                    logger.error(f"Groq {response.status_code}: {response.text[:200]}")
+                    logger.error(f"Groq error {response.status_code}: {response.text[:200]}")
                     continue
                 data = response.json()
                 if "choices" in data and data["choices"]:
@@ -133,7 +213,18 @@ def call_openrouter(prompt: str, max_tokens: int = 1500) -> Optional[str]:
                         return result
         except Exception as e:
             logger.error(f"Groq error {model}: {e}")
+    logger.error("All Groq models failed!")
     return None
+
+
+def parse_json_response(text: str) -> Optional[dict]:
+    try:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return json.loads(text)
+    except:
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -152,6 +243,19 @@ def is_high_impact_event(title: str, summary: str) -> Optional[dict]:
     return None
 
 
+def is_fomc_or_central_bank(title: str, summary: str) -> bool:
+    text = (title + " " + summary).lower()
+    triggers = [
+        "fomc", "federal reserve rate", "fed rate", "interest rate decision",
+        "rate decision", "official bank rate", "main refinancing rate",
+        "boe rate", "ecb rate", "bank rate", "powell speaks", "lagarde speaks",
+        "bailey speaks", "mpc vote", "nonfarm payroll", "nfp report",
+        "cpi report", "inflation report", "gdp report", "advance gdp",
+        "monetary policy statement", "monetary policy report",
+    ]
+    return any(t in text for t in triggers)
+
+
 def fetch_news_from_sources() -> list:
     all_news = []
     for source in NEWS_SOURCES:
@@ -162,7 +266,7 @@ def fetch_news_from_sources() -> list:
                 if article_id in seen_articles:
                     continue
                 title = entry.get("title", "")
-                summary = re.sub(r'<[^>]+>', '', entry.get("summary", entry.get("description", "")))[:500]
+                summary = re.sub(r'<[^>]+>', '', entry.get("summary", entry.get("description", "")))[:600]
                 if is_relevant_news(title, summary):
                     all_news.append({
                         "id": article_id,
@@ -178,185 +282,167 @@ def fetch_news_from_sources() -> list:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  NEWS ANALYSIS
+#  ANALYSIS FUNCTIONS
 # ═══════════════════════════════════════════════════════════════
+MARKETS_JSON = '''{
+    "EURUSD": {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "GBPUSD": {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "DXY":    {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "US100":  {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "US30":   {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "WTI":    {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "GOLD":   {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "USDCAD": {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"},
+    "BTC":    {"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}
+}'''
+
+
 def analyze_news(article: dict) -> Optional[dict]:
-    prompt = f"""انت محلل مالي خبير متخصص في الفوركس والسلع والمؤشرات. حلل هذا الخبر بدقة:
+    prompt = f"""انت محلل مالي خبير متخصص في الفوركس والسلع والمؤشرات. حلل هذا الخبر:
 
 المصدر: {article['source']}
 العنوان: {article['title']}
 الملخص: {article['summary']}
 
-اجب بـ JSON فقط بدون اي نص اضافي:
+اجب بـ JSON فقط:
 {{
   "sentiment": "POSITIVE or NEGATIVE or NEUTRAL",
   "importance": "HIGH or MEDIUM or LOW",
-  "summary_ar": "ملخص الخبر بالعربية في جملة واحدة",
-  "markets": {{
-    "EURUSD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "GBPUSD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "DXY":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "US100":  {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "US30":   {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "WTI":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "GOLD":   {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "USDCAD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}},
-    "BTC":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب"}}
-  }},
-  "overall_analysis": "تحليل شامل في 2-3 جمل عربية"
+  "summary_ar": "ملخص الخبر بالعربية",
+  "markets": {MARKETS_JSON},
+  "overall_analysis": "تحليل شامل في 2-3 جمل"
 }}"""
     text = call_openrouter(prompt, 1200)
     if not text:
         return None
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        return json.loads(match.group() if match else text)
-    except:
-        return None
+    return parse_json_response(text)
 
 
-def analyze_fomc_event(article: dict) -> Optional[dict]:
-    """Special analysis for FOMC and high-impact events"""
-    prompt = f"""انت محلل مالي خبير. هذا خبر عالي الأهمية جداً — قرار الفيدرالي أو حدث اقتصادي كبير.
+def analyze_central_bank_event(article: dict) -> Optional[dict]:
+    prompt = f"""انت محلل مالي خبير متخصص في قرارات البنوك المركزية والأحداث الاقتصادية الكبرى.
+
+هذا حدث اقتصادي عالي الأهمية جداً — قرار بنك مركزي أو بيانات اقتصادية كبرى.
 
 المصدر: {article['source']}
 العنوان: {article['title']}
 التفاصيل: {article['summary']}
 
-قدم تحليلاً شاملاً ودقيقاً. اجب بـ JSON فقط:
+قدم تحليلاً شاملاً ومفصلاً. اجب بـ JSON فقط:
 {{
-  "event_type": "نوع الحدث",
-  "result": "نتيجة الحدث بالأرقام اذا متاحة",
-  "vs_expected": "مقارنة بالتوقعات — افضل/اسوا/كما متوقع",
+  "event_type": "نوع الحدث (مثل: قرار BOE / قرار ECB / NFP / GDP)",
+  "result": "النتيجة بالأرقام إذا متاحة",
+  "vs_expected": "أفضل من المتوقع / أسوأ من المتوقع / كما متوقع",
   "sentiment": "POSITIVE or NEGATIVE or NEUTRAL",
-  "importance": "HIGH",
   "summary_ar": "ملخص تفصيلي للحدث في 2-3 جمل",
-  "key_points": ["نقطة مهمة 1", "نقطة مهمة 2", "نقطة مهمة 3"],
-  "markets": {{
-    "EURUSD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "GBPUSD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "DXY":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "US100":  {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "US30":   {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "WTI":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "GOLD":   {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "USDCAD": {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}},
-    "BTC":    {{"direction": "UP or DOWN or NEUTRAL", "strength": "STRONG or MODERATE or WEAK", "reason": "السبب التفصيلي"}}
-  }},
+  "key_points": ["نقطة مهمة 1", "نقطة مهمة 2", "نقطة مهمة 3", "نقطة مهمة 4"],
+  "markets": {MARKETS_JSON},
   "overall_analysis": "تحليل شامل ومفصل للحدث وتأثيره الفوري والمتوسط المدى في 3-4 جمل",
   "trading_recommendation": "توصية تداول مباشرة بناءً على هذا الحدث"
 }}"""
     text = call_openrouter(prompt, 2000)
     if not text:
         return None
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        return json.loads(match.group() if match else text)
-    except:
-        return None
+    return parse_json_response(text)
 
 
 # ═══════════════════════════════════════════════════════════════
 #  MESSAGE FORMATTERS
 # ═══════════════════════════════════════════════════════════════
-def format_news_alert(article: dict, analysis: dict) -> str:
-    sentiment = analysis.get("sentiment", "NEUTRAL")
-    importance = analysis.get("importance", "MEDIUM")
-    s_emoji = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "🟡"}.get(sentiment, "🟡")
-    s_text  = {"POSITIVE": "ايجابي ✅", "NEGATIVE": "سلبي ❌", "NEUTRAL": "محايد ⚖️"}.get(sentiment, "محايد")
-    i_emoji = {"HIGH": "🔥🔥🔥", "MEDIUM": "⚡⚡", "LOW": "ℹ"}.get(importance, "⚡")
-    d_emoji = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
-    s_word  = {"STRONG": "قوي", "MODERATE": "متوسط", "WEAK": "ضعيف"}
+D_EMOJI = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
+S_WORD = {"STRONG": "قوي 💪", "MODERATE": "متوسط", "WEAK": "ضعيف"}
+SIG_EMOJI = {"BUY": "🟢 BUY", "SELL": "🔴 SELL", "WAIT": "🟡 WAIT"}
+SENT_EMOJI = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "🟡"}
+SENT_TEXT = {"POSITIVE": "إيجابي ✅", "NEGATIVE": "سلبي ❌", "NEUTRAL": "محايد ⚖️"}
+IMP_EMOJI = {"HIGH": "🔥🔥🔥", "MEDIUM": "⚡⚡", "LOW": "ℹ️"}
 
-    markets = analysis.get("markets", {})
-    market_lines = ""
-    for key, label in [
-        ("EURUSD","EUR/USD 🇪🇺"), ("GBPUSD","GBP/USD 🇬🇧"), ("DXY","DXY 💵"),
-        ("US100","US100 📊"),    ("US30","US30 🏭"),         ("WTI","WTI Oil 🛢"),
-        ("GOLD","GOLD 🥇"),      ("USDCAD","USD/CAD 🇨🇦"),  ("BTC","BTC/USD ₿"),
-    ]:
-        m  = markets.get(key, {})
-        de = d_emoji.get(m.get("direction", "NEUTRAL"), "➡️")
-        sw = s_word.get(m.get("strength", "MODERATE"), "متوسط")
-        r  = m.get("reason", "")
-        market_lines += f"{de} *{label}* — {sw}\n   {r}\n\n"
+MARKET_LABELS = [
+    ("EURUSD","EUR/USD 🇪🇺"), ("GBPUSD","GBP/USD 🇬🇧"), ("DXY","DXY 💵"),
+    ("US100","US100 📊"),    ("US30","US30 🏭"),         ("WTI","WTI Oil 🛢"),
+    ("GOLD","GOLD 🥇"),      ("USDCAD","USD/CAD 🇨🇦"),  ("BTC","BTC/USD ₿"),
+]
 
-    return (
-        f"🏆 *GOLDEN TRADING NEWS*\n"
-        f"{'━'*30}\n"
-        f"🚨 *خبر عاجل* {i_emoji}\n"
-        f"{'─'*30}\n\n"
-        f"📰 *المصدر:* {article['source']}\n"
-        f"🕐 {datetime.now(timezone.utc).strftime('%d/%m/%Y  %H:%M')} UTC\n\n"
-        f"📌 *العنوان:*\n{article['title']}\n\n"
-        f"💡 *الملخص:*\n{analysis.get('summary_ar', '')}\n\n"
-        f"{s_emoji} *التوجه:* {s_text}\n"
-        f"{'─'*30}\n"
-        f"📊 *تأثير الخبر على الأسواق:*\n\n"
-        f"{market_lines}"
-        f"{'─'*30}\n"
-        f"🧠 *التحليل:*\n{analysis.get('overall_analysis', '')}\n\n"
-        f"🔗 [قراءة الخبر]({article['link']})\n"
-        f"{'━'*30}"
-    )
+def build_market_lines_news(markets: dict) -> str:
+    lines = ""
+    for key, label in MARKET_LABELS:
+        m = markets.get(key, {})
+        de = D_EMOJI.get(m.get("direction", "NEUTRAL"), "➡️")
+        sw = S_WORD.get(m.get("strength", "MODERATE"), "متوسط")
+        r = m.get("reason", "")
+        lines += f"{de} *{label}* — {sw}\n   {r}\n\n"
+    return lines
 
+def build_market_lines_session(markets: dict) -> str:
+    lines = ""
+    for key, label in MARKET_LABELS:
+        m = markets.get(key, {})
+        sig = SIG_EMOJI.get(m.get("signal", "WAIT"), "🟡 WAIT")
+        lines += f"\n{sig} *{label}*\n   📍 {m.get('key_level','')}\n   📌 {m.get('reason','')}\n"
+    return lines
 
-def format_fomc_alert(article: dict, analysis: dict) -> str:
-    s_emoji = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "🟡"}.get(analysis.get("sentiment","NEUTRAL"), "🟡")
-    d_emoji = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
-    s_word  = {"STRONG": "قوي 💪", "MODERATE": "متوسط", "WEAK": "ضعيف"}
+def build_market_lines_report(markets: dict) -> str:
+    lines = ""
+    for key, label in MARKET_LABELS:
+        m = markets.get(key, {})
+        sig = SIG_EMOJI.get(m.get("signal_tomorrow", "WAIT"), "🟡 WAIT")
+        lines += f"\n*{label}*\n   📈 اليوم: {m.get('performance','')}\n   {sig} غداً: {m.get('outlook','')}\n"
+    return lines
 
-    key_points = analysis.get("key_points", [])
-    points_text = "\n".join([f"  • {p}" for p in key_points])
+def time_now_str():
+    return datetime.now(timezone.utc).strftime('%d/%m/%Y  %H:%M') + " UTC"
 
-    markets = analysis.get("markets", {})
-    market_lines = ""
-    for key, label in [
-        ("EURUSD","EUR/USD 🇪🇺"), ("GBPUSD","GBP/USD 🇬🇧"), ("DXY","DXY 💵"),
-        ("US100","US100 📊"),    ("US30","US30 🏭"),         ("WTI","WTI Oil 🛢"),
-        ("GOLD","GOLD 🥇"),      ("USDCAD","USD/CAD 🇨🇦"),  ("BTC","BTC/USD ₿"),
-    ]:
-        m  = markets.get(key, {})
-        de = d_emoji.get(m.get("direction", "NEUTRAL"), "➡️")
-        sw = s_word.get(m.get("strength", "MODERATE"), "متوسط")
-        r  = m.get("reason", "")
-        market_lines += f"{de} *{label}* — {sw}\n   {r}\n\n"
-
-    return (
-        f"🏆 *GOLDEN TRADING NEWS*\n"
-        f"{'━'*30}\n"
-        f"🚨🔥 *حدث اقتصادي كبير* 🔥🚨\n"
-        f"{'─'*30}\n\n"
-        f"🎯 *{analysis.get('event_type', 'حدث مهم')}*\n"
-        f"📊 *النتيجة:* {analysis.get('result', 'N/A')}\n"
-        f"📌 *مقارنة بالتوقعات:* {analysis.get('vs_expected', '')}\n"
-        f"{s_emoji} *التوجه:* {'إيجابي ✅' if analysis.get('sentiment')=='POSITIVE' else 'سلبي ❌' if analysis.get('sentiment')=='NEGATIVE' else 'محايد ⚖️'}\n\n"
-        f"💡 *الملخص:*\n{analysis.get('summary_ar', '')}\n\n"
-        f"🔑 *النقاط المهمة:*\n{points_text}\n"
-        f"{'─'*30}\n"
-        f"📊 *تأثير على الأسواق:*\n\n"
-        f"{market_lines}"
-        f"{'─'*30}\n"
-        f"🧠 *التحليل الشامل:*\n{analysis.get('overall_analysis', '')}\n\n"
-        f"💼 *توصية التداول:*\n{analysis.get('trading_recommendation', '')}\n\n"
-        f"🔗 [قراءة التفاصيل]({article['link']})\n"
-        f"{'━'*30}"
-    )
+def date_str():
+    return datetime.now(timezone.utc).strftime('%d/%m/%Y')
 
 
 def format_pre_alert(event_info: dict, article: dict) -> str:
     return (
-        f"🏆 *GOLDEN TRADING NEWS*\n"
-        f"{'━'*30}\n"
-        f"⚠️ *تنبيه — خبر مهم بعد 5 دقائق!*\n"
-        f"{'─'*30}\n\n"
+        f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
+        f"⚠️ *تنبيه — خبر مهم خلال دقائق!*\n{'─'*30}\n\n"
         f"{event_info['emoji']} *{event_info['name']}*\n\n"
         f"💱 *العملة المتأثرة:* {event_info['currency']}\n"
         f"📰 *المصدر:* {article['source']}\n"
-        f"🕐 {datetime.now(timezone.utc).strftime('%d/%m/%Y  %H:%M')} UTC\n\n"
+        f"🕐 {time_now_str()}\n\n"
         f"📌 {article['title']}\n\n"
         f"⚡ *استعد! سيصلك التحليل الكامل فور صدور الخبر*\n"
         f"{'━'*30}"
+    )
+
+
+def format_news_alert(article: dict, analysis: dict) -> str:
+    sentiment = analysis.get("sentiment", "NEUTRAL")
+    importance = analysis.get("importance", "MEDIUM")
+    return (
+        f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
+        f"🚨 *خبر عاجل* {IMP_EMOJI.get(importance,'⚡')}\n{'─'*30}\n\n"
+        f"📰 *المصدر:* {article['source']}\n"
+        f"🕐 {time_now_str()}\n\n"
+        f"📌 *العنوان:*\n{article['title']}\n\n"
+        f"💡 *الملخص:*\n{analysis.get('summary_ar','')}\n\n"
+        f"{SENT_EMOJI.get(sentiment,'🟡')} *التوجه:* {SENT_TEXT.get(sentiment,'محايد')}\n"
+        f"{'─'*30}\n📊 *تأثير على الأسواق:*\n\n"
+        f"{build_market_lines_news(analysis.get('markets',{}))}"
+        f"{'─'*30}\n🧠 *التحليل:*\n{analysis.get('overall_analysis','')}\n\n"
+        f"🔗 [قراءة الخبر]({article['link']})\n{'━'*30}"
+    )
+
+
+def format_central_bank_alert(article: dict, analysis: dict) -> str:
+    sentiment = analysis.get("sentiment", "NEUTRAL")
+    key_points = "\n".join([f"  • {p}" for p in analysis.get("key_points", [])])
+    return (
+        f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
+        f"🚨🔥 *حدث اقتصادي كبير جداً* 🔥🚨\n{'─'*30}\n\n"
+        f"🎯 *{analysis.get('event_type','حدث مهم')}*\n"
+        f"📊 *النتيجة:* {analysis.get('result','N/A')}\n"
+        f"📌 *مقارنة بالتوقعات:* {analysis.get('vs_expected','')}\n"
+        f"{SENT_EMOJI.get(sentiment,'🟡')} *التوجه:* {SENT_TEXT.get(sentiment,'محايد')}\n\n"
+        f"💡 *الملخص:*\n{analysis.get('summary_ar','')}\n\n"
+        f"🔑 *النقاط المهمة:*\n{key_points}\n"
+        f"{'─'*30}\n📊 *تأثير على الأسواق:*\n\n"
+        f"{build_market_lines_news(analysis.get('markets',{}))}"
+        f"{'─'*30}\n🧠 *التحليل الشامل:*\n{analysis.get('overall_analysis','')}\n\n"
+        f"💼 *توصية التداول:*\n{analysis.get('trading_recommendation','')}\n\n"
+        f"🔗 [قراءة التفاصيل]({article['link']})\n{'━'*30}"
     )
 
 
@@ -364,8 +450,8 @@ def format_pre_alert(event_info: dict, article: dict) -> str:
 #  SESSION BRIEFING
 # ═══════════════════════════════════════════════════════════════
 def generate_session_briefing(session: str) -> Optional[dict]:
-    session_ar = "لندن" if session == "LONDON" else "نيويورك"
-    prompt = f"""انت محلل مالي خبير. قدم ملخص جلسة {session_ar} الآن مع توصيات واضحة.
+    session_ar = "لندن 🇬🇧" if session == "LONDON" else "نيويورك 🇺🇸"
+    prompt = f"""انت محلل مالي خبير. قدم ملخص جلسة {session_ar} الآن مع توصيات واضحة BUY/SELL/WAIT.
 
 اجب بـ JSON فقط:
 {{
@@ -382,46 +468,29 @@ def generate_session_briefing(session: str) -> Optional[dict]:
     "USDCAD": {{"signal": "BUY or SELL or WAIT", "key_level": "مستوى مهم", "reason": "السبب"}},
     "BTC":    {{"signal": "BUY or SELL or WAIT", "key_level": "مستوى مهم", "reason": "السبب"}}
   }},
-  "risk_warning": "تحذير مخاطر مهم",
-  "events_to_watch": ["حدث1", "حدث2"]
+  "risk_warning": "تحذير مخاطر مهم للجلسة",
+  "events_to_watch": ["حدث1", "حدث2", "حدث3"]
 }}"""
     text = call_openrouter(prompt, 2000)
     if not text:
         return None
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        return json.loads(match.group() if match else text)
-    except:
-        return None
+    return parse_json_response(text)
 
 
 def format_session_message(session: str, data: dict) -> str:
     is_london = session == "LONDON"
-    header = "🇬🇧 صباح الخير — جلسة لندن" if is_london else "🇺🇸 صباح الخير — جلسة نيويورك"
-    mood_emoji = {"BULLISH": "🟢 صاعد", "BEARISH": "🔴 هابط", "NEUTRAL": "🟡 محايد"}.get(data.get("market_mood","NEUTRAL"), "🟡 محايد")
-    signal_emoji = {"BUY": "🟢 BUY", "SELL": "🔴 SELL", "WAIT": "🟡 WAIT"}
-    themes = "\n".join([f"  • {t}" for t in data.get("key_themes", [])])
-    events = "\n".join([f"  ⚡ {e}" for e in data.get("events_to_watch", [])])
-
-    markets = data.get("markets", {})
-    market_lines = ""
-    for key, label in [
-        ("EURUSD","EUR/USD 🇪🇺"), ("GBPUSD","GBP/USD 🇬🇧"), ("DXY","DXY 💵"),
-        ("US100","US100 📊"),    ("US30","US30 🏭"),         ("WTI","WTI Oil 🛢"),
-        ("GOLD","GOLD 🥇"),      ("USDCAD","USD/CAD 🇨🇦"),  ("BTC","BTC/USD ₿"),
-    ]:
-        m = markets.get(key, {})
-        sig = signal_emoji.get(m.get("signal","WAIT"), "🟡 WAIT")
-        market_lines += f"\n{sig} *{label}*\n   📍 {m.get('key_level','')}\n   📌 {m.get('reason','')}\n"
-
+    header = "🇬🇧 صباح الخير — جلسة لندن" if is_london else "🇺🇸 جلسة نيويورك"
+    mood = {"BULLISH": "🟢 صاعد", "BEARISH": "🔴 هابط", "NEUTRAL": "🟡 محايد"}.get(data.get("market_mood","NEUTRAL"), "🟡 محايد")
+    themes = "\n".join([f"  • {t}" for t in data.get("key_themes",[])])
+    events = "\n".join([f"  ⚡ {e}" for e in data.get("events_to_watch",[])])
     return (
         f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
-        f"{header}\n🕐 {datetime.now(timezone.utc).strftime('%d/%m/%Y  %H:%M')} UTC\n"
-        f"{'─'*30}\n\n📊 *مزاج السوق:* {mood_emoji}\n\n"
+        f"{header}\n🕐 {time_now_str()}\n{'─'*30}\n\n"
+        f"📊 *مزاج السوق:* {mood}\n\n"
         f"🎯 *المواضيع الرئيسية:*\n{themes}\n"
         f"{'─'*30}\n💹 *توصيات — BUY / SELL / WAIT:*\n{'─'*30}\n"
-        f"{market_lines}\n{'─'*30}\n"
-        f"📅 *أحداث يجب مراقبتها:*\n{events}\n\n"
+        f"{build_market_lines_session(data.get('markets',{}))}\n"
+        f"{'─'*30}\n📅 *أحداث يجب مراقبتها:*\n{events}\n\n"
         f"⚠️ *تحذير:*\n{data.get('risk_warning','')}\n{'━'*30}"
     )
 
@@ -431,7 +500,10 @@ def format_session_message(session: str, data: dict) -> str:
 # ═══════════════════════════════════════════════════════════════
 def generate_economic_calendar() -> Optional[dict]:
     today = datetime.now(timezone.utc).strftime('%A %d %B %Y')
-    prompt = f"""انت محلل مالي خبير. اليوم {today}. قدم الأجندة الاقتصادية الكاملة لهذا اليوم.
+    prompt = f"""انت محلل مالي خبير. اليوم {today}. قدم الأجندة الاقتصادية الكاملة لهذا اليوم بما فيها:
+- قرارات البنوك المركزية (Fed/ECB/BOE وغيرها)
+- البيانات الاقتصادية المهمة (NFP/CPI/GDP/PMI وغيرها)
+- خطابات المسؤولين المهمة
 
 اجب بـ JSON فقط:
 {{
@@ -439,13 +511,13 @@ def generate_economic_calendar() -> Optional[dict]:
   "events": [
     {{
       "time_utc": "وقت UTC",
-      "time_morocco": "الوقت بتوقيت المغرب",
+      "time_morocco": "الوقت بتوقيت المغرب UTC+1",
       "event": "اسم الحدث",
       "currency": "العملة",
       "importance": "HIGH or MEDIUM or LOW",
       "previous": "القيمة السابقة",
       "forecast": "التوقعات",
-      "expected_outcome_ar": "افضل من المتوقع or اسوا من المتوقع or كما متوقع",
+      "expected_outcome_ar": "أفضل من المتوقع or أسوأ من المتوقع or كما متوقع",
       "probability": "70%",
       "markets_impact": {{
         "EURUSD": "UP or DOWN or NEUTRAL",
@@ -454,39 +526,34 @@ def generate_economic_calendar() -> Optional[dict]:
         "GOLD": "UP or DOWN or NEUTRAL",
         "US100": "UP or DOWN or NEUTRAL"
       }},
-      "analysis": "تحليل مختصر"
+      "analysis": "تحليل مختصر للحدث"
     }}
   ],
-  "most_important_event": "اهم حدث اليوم",
+  "most_important_event": "أهم حدث اليوم",
   "day_bias": "RISK_ON or RISK_OFF or NEUTRAL",
   "trading_advice": "نصيحة تداول عامة لهذا اليوم"
 }}"""
-    text = call_openrouter(prompt, 2500)
+    text = call_openrouter(prompt, 3000)
     if not text:
         return None
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        return json.loads(match.group() if match else text)
-    except:
-        return None
+    return parse_json_response(text)
 
 
 def format_economic_calendar(data: dict) -> str:
-    imp_emoji = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
-    d_emoji = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
-    bias_text = {"RISK_ON": "🟢 شهية مخاطرة", "RISK_OFF": "🔴 نفور مخاطرة", "NEUTRAL": "🟡 محايد"}.get(data.get("day_bias","NEUTRAL"), "🟡")
+    imp_e = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
+    d_e = {"UP": "📈", "DOWN": "📉", "NEUTRAL": "➡️"}
+    bias = {"RISK_ON": "🟢 شهية مخاطرة", "RISK_OFF": "🔴 نفور مخاطرة", "NEUTRAL": "🟡 محايد"}.get(data.get("day_bias","NEUTRAL"), "🟡")
 
     events_text = ""
     for event in data.get("events", []):
-        imp = imp_emoji.get(event.get("importance","LOW"), "⚪")
         impacts = event.get("markets_impact", {})
-        impact_line = " ".join([f"{d_emoji.get(v,'➡️')}{k}" for k,v in impacts.items()])
+        impact_line = " ".join([f"{d_e.get(v,'➡️')}{k}" for k,v in impacts.items()])
         events_text += (
             f"\n{'─'*28}\n"
-            f"{imp} *{event.get('event','')}*\n"
-            f"🕐 {event.get('time_morocco','')} (المغرب)\n"
+            f"{imp_e.get(event.get('importance','LOW'),'⚪')} *{event.get('event','')}*\n"
+            f"🕐 {event.get('time_morocco','')} (المغرب) | {event.get('time_utc','')} UTC\n"
             f"💱 {event.get('currency','')} | السابق: `{event.get('previous','N/A')}` | المتوقع: `{event.get('forecast','N/A')}`\n"
-            f"📌 التوقع: {event.get('expected_outcome_ar','')} | {event.get('probability','')}\n"
+            f"📌 {event.get('expected_outcome_ar','')} | {event.get('probability','')}\n"
             f"📊 {impact_line}\n"
             f"💡 {event.get('analysis','')}\n"
         )
@@ -494,16 +561,13 @@ def format_economic_calendar(data: dict) -> str:
     return (
         f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
         f"📅 *الأجندة الاقتصادية اليومية*\n"
-        f"🗓 {datetime.now(timezone.utc).strftime('%d/%m/%Y')} | 07:00 صباحاً (المغرب)\n"
-        f"{'─'*30}\n\n"
+        f"🗓 {date_str()} | 07:00 صباحاً (المغرب)\n{'─'*30}\n\n"
         f"📌 *نظرة عامة:*\n{data.get('market_overview','')}\n\n"
         f"🎯 *أهم حدث اليوم:* {data.get('most_important_event','')}\n"
-        f"🌡 *مزاج السوق المتوقع:* {bias_text}\n"
+        f"🌡 *مزاج السوق المتوقع:* {bias}\n"
         f"{'─'*30}\n⏰ *الأحداث الاقتصادية:*"
-        f"{events_text}\n"
-        f"{'─'*30}\n"
-        f"💼 *نصيحة اليوم:*\n{data.get('trading_advice','')}\n"
-        f"{'━'*30}"
+        f"{events_text}\n{'─'*30}\n"
+        f"💼 *نصيحة اليوم:*\n{data.get('trading_advice','')}\n{'━'*30}"
     )
 
 
@@ -522,61 +586,44 @@ def generate_daily_report() -> Optional[dict]:
 اجب بـ JSON فقط:
 {{
   "day_summary": "ملخص اليوم في 3-4 جمل",
-  "top_story": "أهم خبر اثر على الأسواق",
+  "top_story": "أهم خبر أثر على الأسواق اليوم",
   "markets_performance": {{
-    "EURUSD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "GBPUSD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "DXY":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "US100":  {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "US30":   {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "WTI":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "GOLD":   {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "USDCAD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}},
-    "BTC":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "التوقعات للغد"}}
+    "EURUSD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "GBPUSD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "DXY":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "US100":  {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "US30":   {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "WTI":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "GOLD":   {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "USDCAD": {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}},
+    "BTC":    {{"performance": "أداء اليوم", "signal_tomorrow": "BUY or SELL or WAIT", "outlook": "توقعات الغد"}}
   }},
-  "tomorrow_events": ["حدث مهم غداً 1", "حدث مهم غداً 2"],
-  "overall_outlook": "نظرة عامة على الغد"
+  "tomorrow_events": ["حدث مهم غداً 1", "حدث مهم غداً 2", "حدث مهم غداً 3"],
+  "overall_outlook": "نظرة عامة على الغد والأسبوع القادم"
 }}"""
     text = call_openrouter(prompt, 2500)
     if not text:
         return None
-    try:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        return json.loads(match.group() if match else text)
-    except:
-        return None
+    return parse_json_response(text)
 
 
 def format_daily_report(data: dict) -> str:
-    sig_emoji = {"BUY": "🟢 BUY", "SELL": "🔴 SELL", "WAIT": "🟡 WAIT"}
-    markets = data.get("markets_performance", {})
-    market_lines = ""
-    for key, label in [
-        ("EURUSD","EUR/USD 🇪🇺"), ("GBPUSD","GBP/USD 🇬🇧"), ("DXY","DXY 💵"),
-        ("US100","US100 📊"),    ("US30","US30 🏭"),         ("WTI","WTI Oil 🛢"),
-        ("GOLD","GOLD 🥇"),      ("USDCAD","USD/CAD 🇨🇦"),  ("BTC","BTC/USD ₿"),
-    ]:
-        m = markets.get(key, {})
-        sig = sig_emoji.get(m.get("signal_tomorrow","WAIT"), "🟡 WAIT")
-        market_lines += f"\n*{label}*\n   📈 اليوم: {m.get('performance','')}\n   {sig} غداً: {m.get('outlook','')}\n"
-
     events = "\n".join([f"  ⚡ {e}" for e in data.get("tomorrow_events",[])])
-    date_str = datetime.now(timezone.utc).strftime('%d/%m/%Y')
     return (
         f"🏆 *GOLDEN TRADING NEWS*\n{'━'*30}\n"
-        f"📋 *التقرير اليومي الشامل*\n📅 {date_str}\n"
-        f"{'─'*30}\n\n📰 *ملخص اليوم:*\n{data.get('day_summary','')}\n\n"
+        f"📋 *التقرير اليومي الشامل*\n📅 {date_str()}\n{'─'*30}\n\n"
+        f"📰 *ملخص اليوم:*\n{data.get('day_summary','')}\n\n"
         f"🔥 *أبرز خبر اليوم:*\n{data.get('top_story','')}\n"
         f"{'─'*30}\n📊 *أداء الأسواق وتوقعات الغد:*\n{'─'*30}\n"
-        f"{market_lines}\n{'─'*30}\n"
-        f"📅 *أحداث مهمة غداً:*\n{events}\n\n"
+        f"{build_market_lines_report(data.get('markets_performance',{}))}\n"
+        f"{'─'*30}\n📅 *أحداث مهمة غداً:*\n{events}\n\n"
         f"🔭 *النظرة العامة:*\n{data.get('overall_outlook','')}\n"
-        f"{'━'*30}\n_تقرير GOLDEN TRADING NEWS — {date_str}_"
+        f"{'━'*30}\n_تقرير GOLDEN TRADING NEWS — {date_str()}_"
     )
 
 
 # ═══════════════════════════════════════════════════════════════
-#  TELEGRAM
+#  TELEGRAM SENDER
 # ═══════════════════════════════════════════════════════════════
 async def send_telegram_message(message: str):
     try:
@@ -590,6 +637,7 @@ async def send_telegram_message(message: str):
                 disable_web_page_preview=True
             )
             await asyncio.sleep(0.5)
+        logger.info("Message sent to Telegram")
     except Exception as e:
         logger.error(f"Telegram error: {e}")
 
@@ -601,36 +649,36 @@ async def check_and_send_news():
     logger.info("Checking for new trading news...")
     articles = fetch_news_from_sources()
     new_count = 0
-    for article in articles[:5]:
+
+    for article in articles[:6]:
         if article["id"] in seen_articles:
             continue
 
-        # Check if this is a high-impact event that needs pre-alert
-        event_info = is_high_impact_event(article["title"], article["summary"])
-        pre_alert_key = article["id"] + "_pre"
+        title = article["title"]
+        summary = article["summary"]
 
+        # Pre-alert for high impact events
+        event_info = is_high_impact_event(title, summary)
+        pre_alert_key = article["id"] + "_pre"
         if event_info and pre_alert_key not in sent_pre_alerts:
             pre_msg = format_pre_alert(event_info, article)
             await send_telegram_message(pre_msg)
             sent_pre_alerts.add(pre_alert_key)
             await asyncio.sleep(2)
 
-        # Decide analysis type
-        is_fomc = any(k in (article["title"] + article["summary"]).lower()
-                     for k in ["fomc", "federal reserve", "interest rate", "rate decision", "powell", "nfp", "nonfarm", "cpi"])
-
-        if is_fomc:
-            analysis = analyze_fomc_event(article)
+        # Choose analysis type
+        if is_fomc_or_central_bank(title, summary):
+            analysis = analyze_central_bank_event(article)
             if analysis:
-                message = format_fomc_alert(article, analysis)
-                await send_telegram_message(message)
+                msg = format_central_bank_alert(article, analysis)
+                await send_telegram_message(msg)
                 daily_news_cache.append(article)
                 new_count += 1
         else:
             analysis = analyze_news(article)
             if analysis and analysis.get("importance") in ["HIGH", "MEDIUM"]:
-                message = format_news_alert(article, analysis)
-                await send_telegram_message(message)
+                msg = format_news_alert(article, analysis)
+                await send_telegram_message(msg)
                 daily_news_cache.append(article)
                 new_count += 1
 
@@ -697,17 +745,17 @@ def run_scheduler():
 
 async def send_startup_message():
     msg = (
-        "🏆 *GOLDEN TRADING NEWS — FINAL VERSION*\n"
+        "🏆 *GOLDEN TRADING NEWS — ULTIMATE VERSION*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "✅ البوت يعمل الآن 24/7!\n\n"
         "📅 *الجدول اليومي (بتوقيت المغرب):*\n"
-        "⏰ 07:00 — الأجندة الاقتصادية اليومية\n"
+        "⏰ 07:00 — الأجندة الاقتصادية الكاملة\n"
         "🇬🇧 08:00 — ملخص جلسة لندن + BUY/SELL/WAIT\n"
         "🇺🇸 14:00 — ملخص جلسة نيويورك + BUY/SELL/WAIT\n"
         "📋 21:00 — التقرير اليومي الشامل\n\n"
-        "🚨 *فوري:*\n"
-        "⚠️ تنبيه قبل الأخبار الكبيرة بـ 5 دقائق\n"
-        "🔥 تحليل خاص لـ FOMC/NFP/CPI/سعر الفائدة\n"
+        "🚨 *فوري — تغطية شاملة:*\n"
+        "⚠️ تنبيه قبل الأخبار الكبيرة\n"
+        "🏦 تحليل خاص: Fed/ECB/BOE/NFP/CPI/GDP\n"
         "📰 كل خبر مهم مع تحليل كامل\n\n"
         "📊 *الأسواق:* EUR/USD | GBP/USD | DXY\n"
         "US100 | US30 | WTI | GOLD | USD/CAD | BTC\n\n"
@@ -722,34 +770,29 @@ async def send_startup_message():
 
 
 async def main():
-    logger.info("Starting GOLDEN TRADING NEWS BOT — FINAL VERSION")
+    logger.info("Starting GOLDEN TRADING NEWS BOT — ULTIMATE VERSION")
     await send_startup_message()
 
-    # Send any missed scheduled reports based on current time (Morocco = UTC+1)
+    # Smart startup — send missed reports based on Morocco time (UTC+1)
     now_utc = datetime.now(timezone.utc)
-    now_morocco_hour = (now_utc.hour + 1) % 24  # UTC+1
+    morocco_hour = (now_utc.hour + 1) % 24
+    logger.info(f"Morocco time: {morocco_hour}:00 — checking missed reports...")
 
-    logger.info(f"Current Morocco time: {now_morocco_hour}:00 — checking missed reports...")
-
-    # If past 07:00 Morocco (06:00 UTC) — send agenda
-    if now_morocco_hour >= 7:
+    if morocco_hour >= 7:
         logger.info("Sending missed economic calendar...")
         await send_economic_calendar()
         await asyncio.sleep(5)
 
-    # If past 08:00 Morocco (07:00 UTC) — send London
-    if now_morocco_hour >= 8:
+    if morocco_hour >= 8:
         logger.info("Sending missed London briefing...")
         await send_london_briefing()
         await asyncio.sleep(5)
 
-    # If past 14:00 Morocco (13:00 UTC) — send NY
-    if now_morocco_hour >= 14:
+    if morocco_hour >= 14:
         logger.info("Sending missed NY briefing...")
         await send_newyork_briefing()
         await asyncio.sleep(5)
 
-    # Always check news on startup
     await check_and_send_news()
 
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
