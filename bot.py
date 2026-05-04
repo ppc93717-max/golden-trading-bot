@@ -504,41 +504,78 @@ def format_session_message(session: str, data: dict) -> str:
 # ═══════════════════════════════════════════════════════════════
 #  ECONOMIC CALENDAR
 # ═══════════════════════════════════════════════════════════════
-def fetch_forex_factory_calendar() -> list:
-    """Fetch real economic events directly from Forex Factory RSS"""
+def fetch_real_calendar_events() -> list:
+    """Fetch real economic events from multiple calendar sources"""
     events = []
-    try:
-        logger.info("Fetching Forex Factory calendar...")
-        feed = feedparser.parse("https://www.forexfactory.com/calendar?format=xml")
-        for entry in feed.entries[:30]:
-            title = entry.get("title", "")
-            summary = re.sub(r'<[^>]+>', '', entry.get("summary", entry.get("description", "")))
-            link = entry.get("link", "")
-            
-            # Determine importance from title keywords
-            importance = "LOW"
-            high_kw = ["interest rate", "nfp", "nonfarm", "cpi", "gdp", "fomc", "ecb", 
-                      "boe", "official bank rate", "fed", "pce", "unemployment claims"]
-            med_kw = ["pmi", "ism", "retail", "housing", "consumer", "inflation",
-                     "employment", "trade balance", "gdp prelim"]
-            
-            t_lower = title.lower()
-            if any(k in t_lower for k in high_kw):
-                importance = "HIGH"
-            elif any(k in t_lower for k in med_kw):
-                importance = "MEDIUM"
-            
-            if importance in ["HIGH", "MEDIUM"]:
-                events.append({
-                    "event": title,
-                    "summary": summary,
-                    "importance": importance,
-                    "link": link,
-                    "time_utc": entry.get("published", ""),
-                })
-        logger.info(f"Forex Factory: found {len(events)} events")
-    except Exception as e:
-        logger.error(f"Forex Factory fetch error: {e}")
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Sources that actually work for economic calendar RSS
+    calendar_sources = [
+        {
+            "name": "MyFXBook Calendar",
+            "url": "https://www.myfxbook.com/rss/forex-economic-calendar",
+        },
+        {
+            "name": "Investing Economic Calendar", 
+            "url": "https://www.investing.com/rss/news_301.rss",
+        },
+        {
+            "name": "FXStreet Calendar",
+            "url": "https://www.fxstreet.com/rss/economic-calendar",
+        },
+        {
+            "name": "ForexLive Calendar",
+            "url": "https://www.forexlive.com/feed/economic-calendar",
+        },
+    ]
+    
+    high_kw = [
+        "interest rate", "nfp", "nonfarm payroll", "cpi", "gdp", "fomc",
+        "ecb rate", "boe rate", "official bank rate", "main refinancing",
+        "fed rate", "pce", "unemployment claims", "inflation report",
+        "monetary policy", "rate decision", "powell", "lagarde", "bailey",
+    ]
+    med_kw = [
+        "pmi", "ism", "retail sales", "housing", "consumer confidence",
+        "employment", "trade balance", "gdp prelim", "flash gdp",
+        "sentix", "zew", "ifo", "jobless claims", "durable goods",
+        "chicago pmi", "factory orders", "building permits",
+    ]
+    
+    seen_events = set()
+    
+    for source in calendar_sources:
+        try:
+            logger.info(f"Fetching calendar from: {source['name']}")
+            feed = feedparser.parse(source["url"])
+            for entry in feed.entries[:20]:
+                title = entry.get("title", "").strip()
+                if not title or title in seen_events:
+                    continue
+                    
+                summary = re.sub(r'<[^>]+>', '', 
+                    entry.get("summary", entry.get("description", "")))[:300]
+                
+                t_lower = (title + " " + summary).lower()
+                importance = "LOW"
+                if any(k in t_lower for k in high_kw):
+                    importance = "HIGH"
+                elif any(k in t_lower for k in med_kw):
+                    importance = "MEDIUM"
+                
+                if importance in ["HIGH", "MEDIUM"]:
+                    seen_events.add(title)
+                    events.append({
+                        "event": title,
+                        "summary": summary,
+                        "importance": importance,
+                        "source": source["name"],
+                        "time_utc": entry.get("published", ""),
+                    })
+        except Exception as e:
+            logger.error(f"Calendar fetch error from {source['name']}: {e}")
+    
+    logger.info(f"Real calendar: found {len(events)} events total")
     return events
 
 
@@ -546,12 +583,14 @@ def generate_economic_calendar() -> Optional[dict]:
     today = datetime.now(timezone.utc).strftime('%A %d %B %Y')
     
     # Get real events from Forex Factory
-    ff_events = fetch_forex_factory_calendar()
+    ff_events = fetch_real_calendar_events()
     ff_text = ""
     if ff_events:
-        ff_text = "\n\nأحداث حقيقية من Forex Factory اليوم:\n"
+        ff_text = "\n\nأحداث اقتصادية حقيقية مؤكدة اليوم (من MyFXBook/FXStreet/ForexLive):\n"
         for ev in ff_events[:15]:
             ff_text += f"- [{ev['importance']}] {ev['event']}\n"
+    else:
+        ff_text = "\n\nملاحظة: لم يتم العثور على أحداث اقتصادية مجدولة اليوم من المصادر الحقيقية. قد يكون اليوم هادئاً أو عطلة."
     
     prompt = f"""انت محلل مالي خبير. اليوم {today}.{ff_text}
 
