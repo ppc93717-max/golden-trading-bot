@@ -826,15 +826,52 @@ async def send_evening_report():
 # ═══════════════════════════════════════════════════════════════
 #  SCHEDULER
 # ═══════════════════════════════════════════════════════════════
-def run_scheduler():
-    schedule.every(CHECK_INTERVAL_MINUTES).minutes.do(lambda: asyncio.run(check_and_send_news()))
-    schedule.every().day.at("06:00").do(lambda: asyncio.run(send_economic_calendar()))   # 07:00 Morocco
-    schedule.every().day.at("07:00").do(lambda: asyncio.run(send_london_briefing()))     # 08:00 Morocco
-    schedule.every().day.at("13:00").do(lambda: asyncio.run(send_newyork_briefing()))    # 14:00 Morocco
-    schedule.every().day.at("20:00").do(lambda: asyncio.run(send_evening_report()))      # 21:00 Morocco
+async def run_async_scheduler():
+    """Pure async scheduler - no threads, no freezing"""
+    logger.info("Async scheduler started")
+    
+    last_news_check = datetime.now(timezone.utc)
+    last_calendar_day = -1
+    last_london_day = -1
+    last_ny_day = -1
+    last_report_day = -1
+
     while True:
-        schedule.run_pending()
-        time.sleep(30)
+        try:
+            now = datetime.now(timezone.utc)
+            morocco_hour = (now.hour + 1) % 24
+            morocco_minute = now.minute
+            today = now.day
+
+            # News check every 10 minutes
+            if (now - last_news_check).total_seconds() >= CHECK_INTERVAL_MINUTES * 60:
+                last_news_check = now
+                await check_and_send_news()
+
+            # 07:00 Morocco = 06:00 UTC — Economic Calendar
+            if morocco_hour == 7 and morocco_minute < 10 and last_calendar_day != today:
+                last_calendar_day = today
+                await send_economic_calendar()
+
+            # 08:00 Morocco = 07:00 UTC — London Briefing
+            if morocco_hour == 8 and morocco_minute < 10 and last_london_day != today:
+                last_london_day = today
+                await send_london_briefing()
+
+            # 14:00 Morocco = 13:00 UTC — NY Briefing
+            if morocco_hour == 14 and morocco_minute < 10 and last_ny_day != today:
+                last_ny_day = today
+                await send_newyork_briefing()
+
+            # 21:00 Morocco = 20:00 UTC — Evening Report
+            if morocco_hour == 21 and morocco_minute < 10 and last_report_day != today:
+                last_report_day = today
+                await send_evening_report()
+
+        except Exception as e:
+            logger.error(f"Scheduler error: {e}")
+
+        await asyncio.sleep(60)  # Check every minute
 
 
 async def send_startup_message():
@@ -889,11 +926,9 @@ async def main():
 
     await check_and_send_news()
 
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-    logger.info("Bot running 24/7")
-    while True:
-        await asyncio.sleep(60)
+    # Use pure async scheduler — no threads, no freezing
+    logger.info("Bot running 24/7 with async scheduler")
+    await run_async_scheduler()
 
 
 if __name__ == "__main__":
