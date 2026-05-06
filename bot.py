@@ -505,75 +505,79 @@ def format_session_message(session: str, data: dict) -> str:
 #  ECONOMIC CALENDAR
 # ═══════════════════════════════════════════════════════════════
 def fetch_real_calendar_events() -> list:
-    """Fetch real economic events from multiple calendar sources"""
+    """Fetch real economic events from MyFXBook API"""
     events = []
-    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    
-    # Sources that actually work for economic calendar RSS
-    calendar_sources = [
-        {
-            "name": "MyFXBook Calendar",
-            "url": "https://www.myfxbook.com/rss/forex-economic-calendar",
-        },
-        {
-            "name": "Investing Economic Calendar", 
-            "url": "https://www.investing.com/rss/news_301.rss",
-        },
-        {
-            "name": "FXStreet Calendar",
-            "url": "https://www.fxstreet.com/rss/economic-calendar",
-        },
-        {
-            "name": "ForexLive Calendar",
-            "url": "https://www.forexlive.com/feed/economic-calendar",
-        },
-    ]
-    
-    high_kw = [
-        "interest rate", "nfp", "nonfarm payroll", "cpi", "gdp", "fomc",
-        "ecb rate", "boe rate", "official bank rate", "main refinancing",
-        "fed rate", "pce", "unemployment claims", "inflation report",
-        "monetary policy", "rate decision", "powell", "lagarde", "bailey",
-    ]
-    med_kw = [
-        "pmi", "ism", "retail sales", "housing", "consumer confidence",
-        "employment", "trade balance", "gdp prelim", "flash gdp",
-        "sentix", "zew", "ifo", "jobless claims", "durable goods",
-        "chicago pmi", "factory orders", "building permits",
-    ]
-    
-    seen_events = set()
-    
-    for source in calendar_sources:
-        try:
-            logger.info(f"Fetching calendar from: {source['name']}")
-            feed = feedparser.parse(source["url"])
-            for entry in feed.entries[:20]:
-                title = entry.get("title", "").strip()
-                if not title or title in seen_events:
-                    continue
+    try:
+        # Get today's date range
+        now = datetime.now(timezone.utc)
+        today_str = now.strftime("%Y-%m-%d")
+        
+        logger.info("Fetching calendar from MyFXBook API...")
+        
+        with httpx.Client(timeout=30) as client:
+            response = client.get(
+                "https://www.myfxbook.com/api/get-economic-calendar.json",
+                params={
+                    "start": f"{today_str} 00:00:00",
+                    "end": f"{today_str} 23:59:59",
+                },
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json",
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    calendar_data = data
+                elif isinstance(data, dict):
+                    calendar_data = data.get("calendar", data.get("events", data.get("data", [])))
+                else:
+                    calendar_data = []
                     
-                summary = re.sub(r'<[^>]+>', '', 
-                    entry.get("summary", entry.get("description", "")))[:300]
+                logger.info(f"MyFXBook API: found {len(calendar_data)} events")
                 
-                t_lower = (title + " " + summary).lower()
-                importance = "LOW"
-                if any(k in t_lower for k in high_kw):
-                    importance = "HIGH"
-                elif any(k in t_lower for k in med_kw):
-                    importance = "MEDIUM"
+                for item in calendar_data:
+                    if isinstance(item, dict):
+                        impact = str(item.get("impact", item.get("importance", "low"))).lower()
+                        title = item.get("title", item.get("name", item.get("event", "")))
+                        currency = item.get("currency", item.get("country", ""))
+                        event_time = item.get("date", item.get("time", item.get("dateUtc", "")))
+                        previous = str(item.get("previous", "N/A"))
+                        forecast = str(item.get("forecast", item.get("consensus", "N/A")))
+                        actual = str(item.get("actual", ""))
+                        
+                        if impact in ["high", "3", "red"] or any(k in title.lower() for k in [
+                            "interest rate", "nfp", "nonfarm", "cpi", "gdp", "fomc",
+                            "ism services", "jolts", "new home sales", "lagarde", "powell",
+                        ]):
+                            importance = "HIGH"
+                        elif impact in ["medium", "2", "orange"] or any(k in title.lower() for k in [
+                            "pmi", "trade", "imports", "exports", "bowman", "williams",
+                        ]):
+                            importance = "MEDIUM"
+                        else:
+                            continue
+                            
+                        events.append({
+                            "event": title,
+                            "currency": currency,
+                            "importance": importance,
+                            "time_utc": event_time,
+                            "previous": previous,
+                            "forecast": forecast,
+                            "actual": actual,
+                        })
+            else:
+                logger.warning(f"MyFXBook API status: {response.status_code}")
                 
-                if importance in ["HIGH", "MEDIUM"]:
-                    seen_events.add(title)
-                    events.append({
-                        "event": title,
-                        "summary": summary,
-                        "importance": importance,
-                        "source": source["name"],
-                        "time_utc": entry.get("published", ""),
-                    })
-        except Exception as e:
-            logger.error(f"Calendar fetch error from {source['name']}: {e}")
+    except Exception as e:
+        logger.error(f"MyFXBook API error: {e}")
+    
+    # Fallback: use AI knowledge if API fails
+    if not events:
+        logger.warning("MyFXBook API returned no events - will use AI knowledge only")
     
     logger.info(f"Real calendar: found {len(events)} events total")
     return events
@@ -590,7 +594,8 @@ def generate_economic_calendar() -> Optional[dict]:
         for ev in ff_events[:15]:
             ff_text += f"- [{ev['importance']}] {ev['event']}\n"
     else:
-        ff_text = "\n\nملاحظة: لم يتم العثور على أحداث اقتصادية مجدولة اليوم من المصادر الحقيقية. قد يكون اليوم هادئاً أو عطلة."
+        # Even without API data, use AI to check what's scheduled today
+        ff_text = "\n\nتعذر جلب البيانات من MyFXBook API مباشرة. استخدم معرفتك الكاملة بالأحداث الاقتصادية المجدولة لهذا اليوم."
     
     prompt = f"""انت محلل مالي خبير. اليوم {today}.{ff_text}
 
