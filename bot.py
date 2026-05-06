@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 GOLDEN TRADING NEWS BOT - ULTIMATE VERSION
@@ -26,7 +27,7 @@ import threading
 # ═══════════════════════════════════════════════════════════════
 TELEGRAM_BOT_TOKEN = "8761021544:AAF8PZfLjFoIblvSCkA5gk2cubFI2-Eto0E"
 TELEGRAM_CHAT_ID = "7782912937"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_FALLBACK = "mixtral-8x7b-32768"
 CHECK_INTERVAL_MINUTES = 10
